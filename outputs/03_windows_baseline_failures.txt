@@ -1,0 +1,14 @@
+# Windows Baseline Test Failures (Clean Clone)
+
+When running `go test ./content/oci -count=1` on Windows without WSL on a clean clone of oras-go, the following 5 tests fail due to Windows filesystem differences (read-only directories, chmod 0555 semantics, and rename-over-open locks). These are baseline failures unrelated to issue #1621 or TestStore_GC_MissingUntaggedEntry:
+
+1. TestStore_Success
+   Failure reason: index.json rename: Access is denied (Windows lock quirk during atomic replacement)
+2. TestStore_GCRemoveError
+   Failure reason: os.Chmod(0555) does not prevent file removal by administrator on Windows
+3. TestStorage_UnsafePush_FileErrors
+   Failure reason: Read-only directory permissions differ on Windows
+4. TestVerify_Layout_TempDir_ReadOnly
+   Failure reason: Read-only directory permissions differ on Windows
+5. TestVerify_TempDir_ReadOnly
+   Failure reason: Read-only directory permissions differ on Windows

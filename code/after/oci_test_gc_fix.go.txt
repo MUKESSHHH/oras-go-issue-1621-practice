@@ -1,0 +1,96 @@
+// Source: oras-go/content/oci/oci_test.go:4907
+// TestStore_GC_MissingUntaggedEntry is the complete end-to-end test for issue #1621.
+// It verifies that Store.GC successfully reloads an index containing a missing
+// untagged entry from disk, cleans it up, deletes orphan blobs, and saves the
+// cleaned index without returning an error.
+
+func TestStore_GC_MissingUntaggedEntry(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := []byte("{}")
+	configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, config)
+	if err := s.Push(ctx, configDesc, bytes.NewReader(config)); err != nil {
+		t.Fatal(err)
+	}
+	manifestJSON, err := json.Marshal(ocispec.Manifest{Config: configDesc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	taggedDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	if err := s.Push(ctx, taggedDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tag(ctx, taggedDesc, "kept"); err != nil {
+		t.Fatal(err)
+	}
+
+	orphan := []byte("orphan")
+	orphanDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, orphan)
+	if err := s.Push(ctx, orphanDesc, bytes.NewReader(orphan)); err != nil {
+		t.Fatal(err)
+	}
+
+	indexJSON, err := os.ReadFile(s.indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index ocispec.Index
+	if err := json.Unmarshal(indexJSON, &index); err != nil {
+		t.Fatal(err)
+	}
+	missingDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("missing manifest"),
+		Size:      int64(len("missing manifest")),
+	}
+	index.Manifests = append(index.Manifests, missingDesc)
+	data, err := json.Marshal(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.indexPath, data, 0666); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err = New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GC(ctx); err != nil {
+		t.Fatalf("GC() error = %v, want nil", err)
+	}
+
+	indexJSON, err = os.ReadFile(s.indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var afterIndex ocispec.Index
+	if err := json.Unmarshal(indexJSON, &afterIndex); err != nil {
+		t.Fatal(err)
+	}
+	if len(afterIndex.Manifests) != 1 {
+		t.Fatalf("len(index.Manifests) = %d, want 1", len(afterIndex.Manifests))
+	}
+	got := afterIndex.Manifests[0]
+	want := taggedDesc
+	want.Annotations = map[string]string{
+		ocispec.AnnotationRefName: "kept",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("index.Manifests[0] = %v, want %v", got, want)
+	}
+
+	exists, err := s.Exists(ctx, taggedDesc)
+	if err != nil || !exists {
+		t.Errorf("Exists(tagged manifest) = %v, %v, want true", exists, err)
+	}
+	exists, err = s.Exists(ctx, orphanDesc)
+	if err != nil || exists {
+		t.Errorf("Exists(orphan) = %v, %v, want false", exists, err)
+	}
+}

@@ -1,0 +1,6 @@
+=== RUN   TestStore_GC_MissingUntaggedEntry
+    oci_test.go:4977: len(index.Manifests) = 2, want 1
+--- FAIL: TestStore_GC_MissingUntaggedEntry (0.03s)
+FAIL
+FAIL	github.com/oras-project/oras-go/v3/content/oci	1.321s
+FAIL
